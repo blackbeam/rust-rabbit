@@ -1,7 +1,14 @@
 [package]
-name = "rust-rabbit"
+name = "rabbit"
+description = """
+An implementation of the Rabbit Stream Cipher Algorithm with support of no_std environment.
+"""
 version = "0.1.0"
-authors = ["blackbeam <aikorsky@gmail.com>"]
+authors = ["AIkorsky <aikorsky@gmail.com>"]
+repository = "https://github.com/blackbeam/rust-rabbit"
+license = "MIT"
+documentation = "https://blackbeam.github.io/rust-rabbit/rabbit/index.html"
+keywords = ["crypto", "rabbit", "cipher", "nostd", "no_std"]
 
 [features]
 default = []
