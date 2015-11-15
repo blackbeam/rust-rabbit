@@ -333,8 +333,59 @@ impl Rabbit {
     }
 }
 
+#[cfg(not(feature = "nostd"))]
+/// Wrapper for `io::Read` implementors.
+pub struct Stream<S> {
+    stream: S,
+    rabbit: Rabbit,
+}
+
+#[cfg(not(feature = "nostd"))]
+impl<S> Stream<S> {
+    pub fn new(rabbit: Rabbit, stream: S) -> Stream<S> {
+        Stream {
+            stream: stream,
+            rabbit: rabbit,
+        }
+    }
+
+    pub fn into_inner(self) -> (Rabbit, S) {
+        let rabbit = self.rabbit;
+        let stream = self.stream;
+        (rabbit, stream)
+    }
+}
+
+#[cfg(not(feature = "nostd"))]
+impl<S: io::Read> io::Read for Stream<S> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let count = try!(self.stream.read(buf));
+        self.rabbit.encrypt_inplace(&mut buf[0..count]);
+        Ok(count)
+    }
+}
+
+#[cfg(not(feature = "nostd"))]
+impl<S: io::Write> io::Write for Stream<S> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut vec = vec![0; buf.len()];
+        self.rabbit.encrypt(buf, &mut vec[..]);
+        try!(self.stream.write_all(&vec[..]));
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.stream.flush()
+    }
+}
+
 #[cfg(test)]
 mod test {
+    #[cfg(not(feature = "nostd"))]
+    use std::io::Read;
+    #[cfg(not(feature = "nostd"))]
+    use std::io::Write;
+
     use super::{
         Key,
         InitVec,
@@ -345,8 +396,11 @@ mod test {
         setup_iv,
     };
 
+    #[cfg(not(feature = "nostd"))]
+    use super::Stream;
+
     macro_rules! test_raw {
-        ($name:ident $wrap_name:ident
+        ($name:ident $wrap_name:ident $stream_name:ident
          key  = [$kf:expr, $ke:expr, $kd:expr, $kc:expr,
                  $kb:expr, $ka:expr, $k9:expr, $k8:expr,
                  $k7:expr, $k6:expr, $k5:expr, $k4:expr,
@@ -386,32 +440,51 @@ mod test {
             #[test]
             fn $wrap_name() {
                 let key = Key([$k0,$k1,$k2,$k3,$k4,$k5,$k6,$k7,$k8,$k9,$ka,$kb,$kc,$kd,$ke,$kf]);
-                let s0 = [$s00,$s01,$s02,$s03,$s04,$s05,$s06,$s07,
-                          $s08,$s09,$s0a,$s0b,$s0c,$s0d,$s0e,$s0f];
-                let s1 = [$s10,$s11,$s12,$s13,$s14,$s15,$s16,$s17,
-                          $s18,$s19,$s1a,$s1b,$s1c,$s1d,$s1e,$s1f];
-                let s2 = [$s20,$s21,$s22,$s23,$s24,$s25,$s26,$s27,
-                          $s28,$s29,$s2a,$s2b,$s2c,$s2d,$s2e,$s2f];
-                let mut d0 = [0; 16];
-                let mut d1 = [0; 16];
-                let mut d2 = [0; 16];
+                let s = [$s00,$s01,$s02,$s03,$s04,$s05,$s06,$s07,
+                         $s08,$s09,$s0a,$s0b,$s0c,$s0d,$s0e,$s0f,
+                         $s10,$s11,$s12,$s13,$s14,$s15,$s16,$s17,
+                         $s18,$s19,$s1a,$s1b,$s1c,$s1d,$s1e,$s1f,
+                         $s20,$s21,$s22,$s23,$s24,$s25,$s26,$s27,
+                         $s28,$s29,$s2a,$s2b,$s2c,$s2d,$s2e,$s2f];
+                let mut d = [0; 48];
                 let mut rabbit = Rabbit::new(&key);
-                rabbit.encrypt_inplace(&mut d0);
-                rabbit.encrypt_inplace(&mut d1);
-                rabbit.encrypt_inplace(&mut d2);
-                assert_eq!(s0, d0);
-                assert_eq!(s1, d1);
-                assert_eq!(s2, d2);
+                rabbit.encrypt_inplace(&mut d);
+                assert_eq!(&s[..], &d[..]);
                 rabbit.reset();
-                rabbit.encrypt(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], &mut d0);
-                rabbit.encrypt(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], &mut d1);
-                rabbit.encrypt(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], &mut d2);
-                assert_eq!(s0, d0);
-                assert_eq!(s1, d1);
-                assert_eq!(s2, d2);
+                rabbit.encrypt(&[0; 48], &mut d);
+                assert_eq!(&s[..], &d[..]);
+            }
+
+            #[cfg(not(feature = "nostd"))]
+            #[test]
+            fn $stream_name() {
+                let key = Key([$k0,$k1,$k2,$k3,$k4,$k5,$k6,$k7,$k8,$k9,$ka,$kb,$kc,$kd,$ke,$kf]);
+                let s = [$s00,$s01,$s02,$s03,$s04,$s05,$s06,$s07,
+                         $s08,$s09,$s0a,$s0b,$s0c,$s0d,$s0e,$s0f,
+                         $s10,$s11,$s12,$s13,$s14,$s15,$s16,$s17,
+                         $s18,$s19,$s1a,$s1b,$s1c,$s1d,$s1e,$s1f,
+                         $s20,$s21,$s22,$s23,$s24,$s25,$s26,$s27,
+                         $s28,$s29,$s2a,$s2b,$s2c,$s2d,$s2e,$s2f];
+                let mut d = [0; 48];
+                let mut rabbit = Rabbit::new(&key);
+                {
+                    let mut stream = Stream::new(rabbit, &mut d[..]);
+                    assert_eq!(48, stream.write(&[0; 48][..]).unwrap());
+                    let (r, _) = stream.into_inner();
+                    rabbit = r;
+                }
+                assert_eq!(&s[..], &d[..]);
+                d = [0; 48];
+                rabbit.reset();
+                {
+                    let tmp = [0; 48];
+                    let mut stream = Stream::new(rabbit, &tmp[..]);
+                    assert_eq!(48, stream.read(&mut d[..]).unwrap());
+                }
+                assert_eq!(&s[..], &d[..]);
             }
         };
-        ($name:ident $wrap_name:ident
+        ($name:ident $wrap_name:ident $stream_name:ident
          key  = [$kf:expr, $ke:expr, $kd:expr, $kc:expr,
                  $kb:expr, $ka:expr, $k9:expr, $k8:expr,
                  $k7:expr, $k6:expr, $k5:expr, $k4:expr,
@@ -456,29 +529,49 @@ mod test {
             fn $wrap_name() {
                 let key = Key([$k0,$k1,$k2,$k3,$k4,$k5,$k6,$k7,$k8,$k9,$ka,$kb,$kc,$kd,$ke,$kf]);
                 let iv = InitVec([$iv0, $iv1, $iv2, $iv3, $iv4, $iv5, $iv6, $iv7]);
-                let s0 = [$s00,$s01,$s02,$s03,$s04,$s05,$s06,$s07,
-                          $s08,$s09,$s0a,$s0b,$s0c,$s0d,$s0e,$s0f];
-                let s1 = [$s10,$s11,$s12,$s13,$s14,$s15,$s16,$s17,
-                          $s18,$s19,$s1a,$s1b,$s1c,$s1d,$s1e,$s1f];
-                let s2 = [$s20,$s21,$s22,$s23,$s24,$s25,$s26,$s27,
-                          $s28,$s29,$s2a,$s2b,$s2c,$s2d,$s2e,$s2f];
-                let mut d0 = [0; 16];
-                let mut d1 = [0; 16];
-                let mut d2 = [0; 16];
+                let s = [$s00,$s01,$s02,$s03,$s04,$s05,$s06,$s07,
+                         $s08,$s09,$s0a,$s0b,$s0c,$s0d,$s0e,$s0f,
+                         $s10,$s11,$s12,$s13,$s14,$s15,$s16,$s17,
+                         $s18,$s19,$s1a,$s1b,$s1c,$s1d,$s1e,$s1f,
+                         $s20,$s21,$s22,$s23,$s24,$s25,$s26,$s27,
+                         $s28,$s29,$s2a,$s2b,$s2c,$s2d,$s2e,$s2f];
+                let mut d = [0; 48];
                 let mut rabbit = Rabbit::new_iv(&key, &iv);
-                rabbit.encrypt_inplace(&mut d0);
-                rabbit.encrypt_inplace(&mut d1);
-                rabbit.encrypt_inplace(&mut d2);
-                assert_eq!(s0, d0);
-                assert_eq!(s1, d1);
-                assert_eq!(s2, d2);
+                rabbit.encrypt_inplace(&mut d);
+                assert_eq!(&s[..], &d[..]);
                 rabbit.reinit(&iv);
-                rabbit.encrypt(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], &mut d0);
-                rabbit.encrypt(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], &mut d1);
-                rabbit.encrypt(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], &mut d2);
-                assert_eq!(s0, d0);
-                assert_eq!(s1, d1);
-                assert_eq!(s2, d2);
+                rabbit.encrypt(&[0; 48], &mut d);
+                assert_eq!(&s[..], &d[..]);
+            }
+
+            #[cfg(not(feature = "nostd"))]
+            #[test]
+            fn $stream_name() {
+                let key = Key([$k0,$k1,$k2,$k3,$k4,$k5,$k6,$k7,$k8,$k9,$ka,$kb,$kc,$kd,$ke,$kf]);
+                let iv = InitVec([$iv0, $iv1, $iv2, $iv3, $iv4, $iv5, $iv6, $iv7]);
+                let s = [$s00,$s01,$s02,$s03,$s04,$s05,$s06,$s07,
+                         $s08,$s09,$s0a,$s0b,$s0c,$s0d,$s0e,$s0f,
+                         $s10,$s11,$s12,$s13,$s14,$s15,$s16,$s17,
+                         $s18,$s19,$s1a,$s1b,$s1c,$s1d,$s1e,$s1f,
+                         $s20,$s21,$s22,$s23,$s24,$s25,$s26,$s27,
+                         $s28,$s29,$s2a,$s2b,$s2c,$s2d,$s2e,$s2f];
+                let mut d = [0; 48];
+                let mut rabbit = Rabbit::new_iv(&key, &iv);
+                {
+                    let mut stream = Stream::new(rabbit, &mut d[..]);
+                    assert_eq!(48, stream.write(&[0; 48][..]).unwrap());
+                    let (r, _) = stream.into_inner();
+                    rabbit = r;
+                }
+                assert_eq!(&s[..], &d[..]);
+                d = [0; 48];
+                rabbit.reinit(&iv);
+                {
+                    let tmp = [0; 48];
+                    let mut stream = Stream::new(rabbit, &tmp[..]);
+                    assert_eq!(48, stream.read(&mut d[..]).unwrap());
+                }
+                assert_eq!(&s[..], &d[..]);
             }
         }
     }
@@ -488,6 +581,7 @@ mod test {
     test_raw! {
         without_iv_setup1
         wrapped_without_iv1
+        stream_without_iv1
         key  = [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
         S[0] = [0xB1,0x57,0x54,0xF0,0x36,0xA5,0xD6,0xEC,0xF5,0x6B,0x45,0x26,0x1C,0x4A,0xF7,0x02]
         S[1] = [0x88,0xE8,0xD8,0x15,0xC5,0x9C,0x0C,0x39,0x7B,0x69,0x6C,0x47,0x89,0xC6,0x8A,0xA7]
@@ -497,6 +591,7 @@ mod test {
     test_raw! {
         without_iv_setup2
         wrapped_without_iv2
+        stream_without_iv2
         key  = [0x91,0x28,0x13,0x29,0x2E,0x3D,0x36,0xFE,0x3B,0xFC,0x62,0xF1,0xDC,0x51,0xC3,0xAC]
         S[0] = [0x3D,0x2D,0xF3,0xC8,0x3E,0xF6,0x27,0xA1,0xE9,0x7F,0xC3,0x84,0x87,0xE2,0x51,0x9C]
         S[1] = [0xF5,0x76,0xCD,0x61,0xF4,0x40,0x5B,0x88,0x96,0xBF,0x53,0xAA,0x85,0x54,0xFC,0x19]
@@ -506,6 +601,7 @@ mod test {
     test_raw! {
         without_iv_setup3
         wrapped_without_iv3
+        stream_without_iv3
         key  = [0x83,0x95,0x74,0x15,0x87,0xE0,0xC7,0x33,0xE9,0xE9,0xAB,0x01,0xC0,0x9B,0x00,0x43]
         S[0] = [0x0C,0xB1,0x0D,0xCD,0xA0,0x41,0xCD,0xAC,0x32,0xEB,0x5C,0xFD,0x02,0xD0,0x60,0x9B]
         S[1] = [0x95,0xFC,0x9F,0xCA,0x0F,0x17,0x01,0x5A,0x7B,0x70,0x92,0x11,0x4C,0xFF,0x3E,0xAD]
@@ -517,6 +613,7 @@ mod test {
     test_raw! {
         with_iv_setup1
         wrapped_with_iv1
+        stream_with_iv1
         key  = [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
         iv   = [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
         S[0] = [0xC6,0xA7,0x27,0x5E,0xF8,0x54,0x95,0xD8,0x7C,0xCD,0x5D,0x37,0x67,0x05,0xB7,0xED]
@@ -527,6 +624,7 @@ mod test {
     test_raw! {
         with_iv_setup2
         wrapped_with_iv2
+        stream_with_iv2
         key  = [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
         iv   = [0xC3,0x73,0xF5,0x75,0xC1,0x26,0x7E,0x59]
         S[0] = [0x1F,0xCD,0x4E,0xB9,0x58,0x00,0x12,0xE2,0xE0,0xDC,0xCC,0x92,0x22,0x01,0x7D,0x6D]
@@ -537,6 +635,7 @@ mod test {
     test_raw! {
         with_iv_setup3
         wrapped_with_iv3
+        stream_with_iv3
         key  = [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
         iv   = [0xA6,0xEB,0x56,0x1A,0xD2,0xF4,0x17,0x27]
         S[0] = [0x44,0x5A,0xD8,0xC8,0x05,0x85,0x8D,0xBF,0x70,0xB6,0xAF,0x23,0xA1,0x51,0x10,0x4D]
