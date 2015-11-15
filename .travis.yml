@@ -1,4 +1,26 @@
 language: rust
+matrix:
+  include:
+    - rust: stable
+    - rust: beta
+    - rust: nightly
+      env:
+       - FEATURES='nostd'
+os:
+  - linux
+  - osx
+env:
+  - ARCH=x86_64
+  - ARCH=i686
+matrix:
+  allow_failures:
+    - rust: nightly
+script:
+  - |
+      cargo build --verbose &&
+      cargo test --verbose &&
+      ([ -z "$FEATURES" ] || cargo build --verbose --features "$FEATURES") &&
+      ([ -z "$FEATURES" ] || cargo test --verbose --features "$FEATURES")
 after_success: |
   [ $TRAVIS_BRANCH = master ] &&
   [ $TRAVIS_PULL_REQUEST = false ] &&
