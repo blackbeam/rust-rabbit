@@ -1,0 +1,8 @@
+[package]
+name = "rust-rabbit"
+version = "0.1.0"
+authors = ["blackbeam <aikorsky@gmail.com>"]
+
+[features]
+default = []
+nostd = []
