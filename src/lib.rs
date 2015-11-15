@@ -334,7 +334,7 @@ impl Rabbit {
 }
 
 #[cfg(not(feature = "nostd"))]
-/// Wrapper for `io::Read` implementors.
+/// Wrapper for `io::Read` and `io::Write` implementors.
 pub struct Stream<S> {
     stream: S,
     rabbit: Rabbit,
