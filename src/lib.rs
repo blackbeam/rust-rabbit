@@ -1,8 +1,15 @@
-#![cfg_attr(feature = "nostd", feature(no_std))]
+#![cfg_attr(feature = "nostd", feature(no_std, core_slice_ext))]
 #![cfg_attr(feature = "nostd", no_std)]
+
+#[cfg(not(feature = "nostd"))]
 use std::io;
+#[cfg(not(feature = "nostd"))]
 use std::fmt;
+#[cfg(not(feature = "nostd"))]
 use std::ops::Deref;
+
+#[cfg(feature = "nostd")]
+use core::ops::Deref;
 
 const WORDSIZE: u64 = (1 << 32);
 const A: [u32; 8] = [0x4D34D34D, 0xD34D34D3, 0x34D34D34, 0x4D34D34D,
@@ -36,7 +43,10 @@ impl From<[u8; 16]> for Key {
 impl<'a> From<&'a [u8]> for Key {
     fn from(slice: &[u8]) -> Key {
         assert_eq!(slice.len(), 16);
-        let key: [u8; 16] = unsafe { ::std::ptr::read(slice.as_ptr() as *const [u8; 16]) };
+        let mut key = [0; 16];
+        for i in 0..16 {
+            key[i] = slice[i];
+        }
         Key(key)
     }
 }
@@ -78,7 +88,10 @@ impl From<[u8; 8]> for InitVec {
 impl<'a> From<&'a [u8]> for InitVec {
     fn from(slice: &'a [u8]) -> InitVec {
         assert_eq!(slice.len(), 8);
-        let iv: [u8; 8] = unsafe { ::std::ptr::read(slice.as_ptr() as *const [u8; 8]) };
+        let mut iv = [0; 8];
+        for i in 0..8 {
+            iv[i] = slice[i];
+        }
         InitVec(iv)
     }
 }
@@ -90,6 +103,7 @@ struct State {
     carry_bit: u8,
 }
 
+#[cfg(not(feature = "nostd"))]
 impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.carry_bit > 0 {
