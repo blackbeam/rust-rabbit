@@ -2,6 +2,14 @@
 
 An implementation of the Rabbit Stream Cipher Algorithm with support of no_std environment.
 
+-----
+
+# ARCHIVED
+
+**It is now in RustCrypto organization ([link](https://github.com/RustCrypto/stream-ciphers/tree/master/rabbit)).**
+
+-----
+
 ## Installation
 
 Use [cargo package](https://crates.io/crates/rabbit).
